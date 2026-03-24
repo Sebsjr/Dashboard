@@ -19,7 +19,7 @@ st.markdown("""
 
 st.title("📊 Dashboard Inteligente - Energia e Água")
 
-arquivo_excel = r'C:\boxplot\dados.xlsx'
+arquivo_excel = r'C:\boxplot\dados.xls'
 
 LIMITE_OUTLIERS = 3
 
