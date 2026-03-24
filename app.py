@@ -7,33 +7,34 @@ import plotly.express as px
 st.set_page_config(layout="wide")
 st.title("📊 Dashboard de Consumo - Energia e Água")
 
-# ---------------- LEITURA DIRETA DO GITHUB (CORREÇÃO DEFINITIVA) ----------------
+# ---------------- LEITURA DO GITHUB ----------------
 arquivo_excel = "https://raw.githubusercontent.com/Sebsjr/Dashboard/main/dados.xlsx"
 
 @st.cache_data
 def carregar_dados():
-    return pd.read_excel(arquivo_excel, sheet_name='Planilha2', header=[0,1])
+    try:
+        df = pd.read_excel(arquivo_excel, sheet_name='Planilha2')
+        df.columns = df.columns.map(lambda x: str(x).strip())
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar Excel: {e}")
+        return None
 
 df = carregar_dados()
 
-# ---------------- FUNÇÃO OUTLIER ----------------
-def calcular_outliers(dados):
-    if len(dados) < 4:
-        return []
-    q1 = np.percentile(dados, 25)
-    q3 = np.percentile(dados, 75)
-    iqr = q3 - q1
-    lim_inf = q1 - 1.5 * iqr
-    lim_sup = q3 + 1.5 * iqr
-    return [x for x in dados if x < lim_inf or x > lim_sup]
+if df is None or df.empty:
+    st.stop()
 
-# ---------------- TRANSFORMAR DADOS ----------------
+# ---------------- TRANSFORMAR DADOS (SEM MULTIINDEX) ----------------
 dados = []
+colunas = df.columns.tolist()
 
-for unidade in df.columns.levels[0]:
+for i in range(0, len(colunas), 2):
     try:
-        energia = df[unidade]['Energia'].dropna()
-        agua = df[unidade]['Agua'].dropna()
+        unidade = colunas[i]
+
+        energia = pd.to_numeric(df.iloc[:, i], errors='coerce').dropna()
+        agua = pd.to_numeric(df.iloc[:, i+1], errors='coerce').dropna()
 
         for v in energia:
             dados.append([unidade, 'Energia', v])
@@ -45,6 +46,11 @@ for unidade in df.columns.levels[0]:
         continue
 
 df_long = pd.DataFrame(dados, columns=['Unidade','Tipo','Valor'])
+
+# VALIDAÇÃO
+if df_long.empty:
+    st.error("❌ Nenhum dado válido encontrado. Verifique o formato do Excel.")
+    st.stop()
 
 # ---------------- SIDEBAR ----------------
 st.sidebar.header("Filtros")
@@ -84,10 +90,9 @@ fig_box = px.box(
 )
 
 fig_box.update_layout(xaxis_tickangle=90)
-
 st.plotly_chart(fig_box, width='stretch')
 
-# ---------------- RANKING POR TIPO ----------------
+# ---------------- RANKING ----------------
 st.subheader("🏆 Ranking por Tipo")
 
 ranking = df_filtrado.groupby(['Unidade','Tipo'])['Valor'].mean().reset_index()
@@ -101,11 +106,20 @@ fig_rank = px.bar(
 )
 
 fig_rank.update_layout(xaxis_tickangle=90)
-
 st.plotly_chart(fig_rank, width='stretch')
 
 # ---------------- OUTLIERS ----------------
 st.subheader("🚨 Outliers por Unidade e Tipo")
+
+def calcular_outliers(dados):
+    if len(dados) < 4:
+        return []
+    q1 = np.percentile(dados, 25)
+    q3 = np.percentile(dados, 75)
+    iqr = q3 - q1
+    lim_inf = q1 - 1.5 * iqr
+    lim_sup = q3 + 1.5 * iqr
+    return [x for x in dados if x < lim_inf or x > lim_sup]
 
 outlier_data = []
 
@@ -117,12 +131,11 @@ for unidade in df_filtrado['Unidade'].unique():
         ]['Valor']
 
         out = calcular_outliers(dados_u)
-
         outlier_data.append([unidade, tipo, len(out)])
 
 df_out = pd.DataFrame(outlier_data, columns=['Unidade','Tipo','Outliers'])
 
-# LIMITE DE ALERTA
+# LIMITE
 limite = st.sidebar.slider("Limite de alerta (outliers)", 0, 20, 2)
 
 df_out['Alerta'] = df_out['Outliers'] > limite
@@ -136,7 +149,6 @@ fig_out = px.bar(
 )
 
 fig_out.update_layout(xaxis_tickangle=90)
-
 st.plotly_chart(fig_out, width='stretch')
 
 # ---------------- ALERTAS ----------------
