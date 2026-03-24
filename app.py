@@ -2,37 +2,19 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import plotly.express as px
-import os
 
 # ---------------- CONFIG ----------------
 st.set_page_config(layout="wide")
 st.title("📊 Dashboard de Consumo - Energia e Água")
 
-# ---------------- CAMINHO DINÂMICO (CORREÇÃO PRINCIPAL) ----------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ---------------- LEITURA DIRETA DO GITHUB (CORREÇÃO DEFINITIVA) ----------------
+arquivo_excel = "https://raw.githubusercontent.com/Sebsjr/Dashboard/main/dados.xlsx"
 
-# tenta encontrar automaticamente o arquivo Excel
-arquivos = os.listdir(BASE_DIR)
-arquivo_excel = None
+@st.cache_data
+def carregar_dados():
+    return pd.read_excel(arquivo_excel, sheet_name='Planilha2', header=[0,1])
 
-for f in arquivos:
-    if f.endswith(".xlsx") or f.endswith(".xls"):
-        arquivo_excel = os.path.join(BASE_DIR, f)
-        break
-
-# validação
-if arquivo_excel is None:
-    st.error("❌ Nenhum arquivo Excel encontrado na pasta do projeto")
-    st.stop()
-
-# DEBUG (pode remover depois)
-with st.expander("🔍 Debug (arquivos disponíveis)"):
-    st.write("Diretório:", BASE_DIR)
-    st.write("Arquivos:", arquivos)
-    st.write("Arquivo usado:", arquivo_excel)
-
-# ---------------- LEITURA ----------------
-df = pd.read_excel(arquivo_excel, sheet_name='Planilha2', header=[0,1])
+df = carregar_dados()
 
 # ---------------- FUNÇÃO OUTLIER ----------------
 def calcular_outliers(dados):
@@ -105,7 +87,7 @@ fig_box.update_layout(xaxis_tickangle=90)
 
 st.plotly_chart(fig_box, width='stretch')
 
-# ---------------- RANKING SEPARADO ----------------
+# ---------------- RANKING POR TIPO ----------------
 st.subheader("🏆 Ranking por Tipo")
 
 ranking = df_filtrado.groupby(['Unidade','Tipo'])['Valor'].mean().reset_index()
@@ -122,7 +104,7 @@ fig_rank.update_layout(xaxis_tickangle=90)
 
 st.plotly_chart(fig_rank, width='stretch')
 
-# ---------------- OUTLIERS POR TIPO ----------------
+# ---------------- OUTLIERS ----------------
 st.subheader("🚨 Outliers por Unidade e Tipo")
 
 outlier_data = []
@@ -140,7 +122,7 @@ for unidade in df_filtrado['Unidade'].unique():
 
 df_out = pd.DataFrame(outlier_data, columns=['Unidade','Tipo','Outliers'])
 
-# LIMIAR
+# LIMITE DE ALERTA
 limite = st.sidebar.slider("Limite de alerta (outliers)", 0, 20, 2)
 
 df_out['Alerta'] = df_out['Outliers'] > limite
@@ -158,7 +140,7 @@ fig_out.update_layout(xaxis_tickangle=90)
 st.plotly_chart(fig_out, width='stretch')
 
 # ---------------- ALERTAS ----------------
-st.subheader("⚠️ Alertas Inteligentes")
+st.subheader("⚠️ Alertas Automáticos")
 
 for _, row in df_out.iterrows():
     if row['Outliers'] > limite:
