@@ -2,171 +2,200 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import plotly.express as px
+from sklearn.linear_model import LinearRegression
 
 # ---------------- CONFIG ----------------
 st.set_page_config(layout="wide")
-st.title("📊 Dashboard de Consumo - Energia e Água")
 
-# ---------------- LEITURA DO GITHUB ----------------
-arquivo_excel = "https://raw.githubusercontent.com/Sebsjr/Dashboard/main/dados.xlsx"
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #0e1117;
+        color: white;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-@st.cache_data
-def carregar_dados():
-    try:
-        df = pd.read_excel(arquivo_excel, sheet_name='Planilha2')
-        df.columns = df.columns.map(lambda x: str(x).strip())
-        return df
-    except Exception as e:
-        st.error(f"Erro ao carregar Excel: {e}")
-        return None
+st.title("📊 Dashboard Inteligente - Energia e Água")
 
-df = carregar_dados()
+arquivo_excel = r'C:\boxplot\dados.xlsx'
+LIMITE_OUTLIERS = 3
 
-if df is None or df.empty:
-    st.stop()
+# ---------------- LEITURA ----------------
+df = pd.read_excel(arquivo_excel, sheet_name='Planilha2', header=[0,1])
 
-# ---------------- TRANSFORMAR DADOS (SEM MULTIINDEX) ----------------
+# ---------------- TRANSFORMAR DADOS ----------------
 dados = []
-colunas = df.columns.tolist()
 
-for i in range(0, len(colunas), 2):
+for unidade in df.columns.levels[0]:
     try:
-        unidade = colunas[i]
+        energia = df[unidade]['Energia'].dropna().reset_index(drop=True)
+        agua = df[unidade]['Agua'].dropna().reset_index(drop=True)
 
-        energia = pd.to_numeric(df.iloc[:, i], errors='coerce').dropna()
-        agua = pd.to_numeric(df.iloc[:, i+1], errors='coerce').dropna()
+        for i, v in enumerate(energia):
+            dados.append([unidade, 'Energia', v, i+1])
 
-        for v in energia:
-            dados.append([unidade, 'Energia', v])
-
-        for v in agua:
-            dados.append([unidade, 'Água', v])
+        for i, v in enumerate(agua):
+            dados.append([unidade, 'Água', v, i+1])
 
     except:
         continue
 
-df_long = pd.DataFrame(dados, columns=['Unidade','Tipo','Valor'])
+df_long = pd.DataFrame(dados, columns=['Unidade','Tipo','Valor','Mes'])
 
-# VALIDAÇÃO
-if df_long.empty:
-    st.error("❌ Nenhum dado válido encontrado. Verifique o formato do Excel.")
-    st.stop()
+# 🔥 MAPA DE MESES
+mapa_meses = {
+    1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr',
+    5:'Mai', 6:'Jun', 7:'Jul', 8:'Ago',
+    9:'Set', 10:'Out', 11:'Nov', 12:'Dez'
+}
+
+df_long['Mes_nome'] = df_long['Mes'].map(mapa_meses)
 
 # ---------------- SIDEBAR ----------------
 st.sidebar.header("Filtros")
 
 unidades = st.sidebar.multiselect(
-    "Selecione as unidades:",
-    options=df_long['Unidade'].unique(),
+    "Unidades",
+    df_long['Unidade'].unique(),
     default=df_long['Unidade'].unique()
 )
 
 tipos = st.sidebar.multiselect(
-    "Tipo:",
-    options=df_long['Tipo'].unique(),
+    "Tipo",
+    df_long['Tipo'].unique(),
     default=df_long['Tipo'].unique()
+)
+
+meses = st.sidebar.slider(
+    "Período (Meses)",
+    int(df_long['Mes'].min()),
+    int(df_long['Mes'].max()),
+    (1, int(df_long['Mes'].max()))
 )
 
 df_filtrado = df_long[
     (df_long['Unidade'].isin(unidades)) &
-    (df_long['Tipo'].isin(tipos))
+    (df_long['Tipo'].isin(tipos)) &
+    (df_long['Mes'] >= meses[0]) &
+    (df_long['Mes'] <= meses[1])
 ]
 
-# ---------------- KPIs ----------------
-col1, col2, col3 = st.columns(3)
-
-col1.metric("💰 Consumo Médio", f"{df_filtrado['Valor'].mean():,.2f}")
-col2.metric("📊 Total Registros", len(df_filtrado))
-col3.metric("🏢 Unidades", df_filtrado['Unidade'].nunique())
-
-# ---------------- BOXPLOT ----------------
-st.subheader("📦 Boxplot Geral")
-
-fig_box = px.box(
-    df_filtrado,
-    x="Unidade",
-    y="Valor",
-    color="Tipo"
+# ---------------- ABAS ----------------
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["📊 Dashboard", "🏆 Ranking", "🚨 Alertas", "🤖 Diagnóstico IA", "📈 Previsão"]
 )
 
-fig_box.update_layout(xaxis_tickangle=90)
-st.plotly_chart(fig_box, width='stretch')
+# ================= DASHBOARD =================
+with tab1:
+    col1, col2, col3 = st.columns(3)
 
-# ---------------- RANKING ----------------
-st.subheader("🏆 Ranking por Tipo")
+    col1.metric("💰 Média", f"{df_filtrado['Valor'].mean():,.2f}")
+    col2.metric("📊 Registros", len(df_filtrado))
+    col3.metric("🏢 Unidades", df_filtrado['Unidade'].nunique())
 
-ranking = df_filtrado.groupby(['Unidade','Tipo'])['Valor'].mean().reset_index()
+    fig = px.box(df_filtrado, y="Unidade", x="Valor", color="Tipo", orientation='h')
+    fig.update_layout(height=1000)
 
-fig_rank = px.bar(
-    ranking,
-    x='Unidade',
-    y='Valor',
-    color='Tipo',
-    barmode='group'
-)
+    st.plotly_chart(fig, width='stretch')
 
-fig_rank.update_layout(xaxis_tickangle=90)
-st.plotly_chart(fig_rank, width='stretch')
+# ================= RANKING =================
+with tab2:
+    col1, col2 = st.columns(2)
 
-# ---------------- OUTLIERS ----------------
-st.subheader("🚨 Outliers por Unidade e Tipo")
+    for tipo, col in zip(['Energia','Água'], [col1, col2]):
+        with col:
+            df_tipo = df_filtrado[df_filtrado['Tipo'] == tipo]
+            ranking = df_tipo.groupby('Unidade')['Valor'].mean().reset_index()
+            ranking = ranking.sort_values(by='Valor', ascending=True)
 
-def calcular_outliers(dados):
-    if len(dados) < 4:
-        return []
-    q1 = np.percentile(dados, 25)
-    q3 = np.percentile(dados, 75)
-    iqr = q3 - q1
-    lim_inf = q1 - 1.5 * iqr
-    lim_sup = q3 + 1.5 * iqr
-    return [x for x in dados if x < lim_inf or x > lim_sup]
+            fig = px.bar(ranking, y='Unidade', x='Valor', orientation='h', title=tipo)
+            fig.update_layout(height=800)
 
-outlier_data = []
+            st.plotly_chart(fig, width='stretch')
 
-for unidade in df_filtrado['Unidade'].unique():
-    for tipo in ['Energia', 'Água']:
-        dados_u = df_filtrado[
-            (df_filtrado['Unidade'] == unidade) &
-            (df_filtrado['Tipo'] == tipo)
-        ]['Valor']
+# ================= ALERTAS =================
+with tab3:
+    outlier_data = []
+    alertas = []
 
-        out = calcular_outliers(dados_u)
-        outlier_data.append([unidade, tipo, len(out)])
+    for unidade in df_filtrado['Unidade'].unique():
+        for tipo in ['Energia','Água']:
 
-df_out = pd.DataFrame(outlier_data, columns=['Unidade','Tipo','Outliers'])
+            df_u = df_filtrado[
+                (df_filtrado['Unidade'] == unidade) &
+                (df_filtrado['Tipo'] == tipo)
+            ]
 
-# LIMITE
-limite = st.sidebar.slider("Limite de alerta (outliers)", 0, 20, 2)
+            if len(df_u) == 0:
+                continue
 
-df_out['Alerta'] = df_out['Outliers'] > limite
+            valores = df_u['Valor'].values
 
-fig_out = px.bar(
-    df_out,
-    x='Unidade',
-    y='Outliers',
-    color='Alerta',
-    facet_col='Tipo'
-)
+            q1 = np.percentile(valores, 25)
+            q3 = np.percentile(valores, 75)
+            iqr = q3 - q1
+            lim_inf = q1 - 1.5 * iqr
+            lim_sup = q3 + 1.5 * iqr
 
-fig_out.update_layout(xaxis_tickangle=90)
-st.plotly_chart(fig_out, width='stretch')
+            outliers_df = df_u[
+                (df_u['Valor'] < lim_inf) | (df_u['Valor'] > lim_sup)
+            ]
 
-# ---------------- ALERTAS ----------------
-st.subheader("⚠️ Alertas Automáticos")
+            qtd = len(outliers_df)
 
-for _, row in df_out.iterrows():
-    if row['Outliers'] > limite:
-        st.error(f"🚨 {row['Unidade']} - {row['Tipo']} com {row['Outliers']} outliers")
+            outlier_data.append([unidade, tipo, qtd])
 
-# ---------------- IA SIMPLES ----------------
-st.subheader("🤖 Diagnóstico Inteligente")
+            if qtd > 0:
+                meses_outliers = list(outliers_df['Mes_nome'])
+                valores_outliers = list(outliers_df['Valor'])
 
-for _, row in df_out.iterrows():
-    if row['Outliers'] > limite:
+                nivel = "critico" if qtd >= LIMITE_OUTLIERS else "normal"
 
-        if row['Tipo'] == 'Água':
-            causa = "Possível vazamento ou consumo fora do padrão"
+                alertas.append({
+                    "nivel": nivel,
+                    "unidade": unidade,
+                    "tipo": tipo,
+                    "quantidade": qtd,
+                    "meses": meses_outliers,
+                    "valores": valores_outliers
+                })
+
+    df_out = pd.DataFrame(outlier_data, columns=['Unidade','Tipo','Outliers'])
+
+    df_out['Nivel'] = df_out['Outliers'].apply(
+        lambda x: 'Crítico' if x >= LIMITE_OUTLIERS else 'Normal'
+    )
+
+    fig = px.bar(
+        df_out,
+        y='Unidade',
+        x='Outliers',
+        color='Nivel',
+        orientation='h',
+        barmode='group',
+        color_discrete_map={'Crítico':'red','Normal':'orange'}
+    )
+
+    fig.update_layout(height=1000)
+    st.plotly_chart(fig, width='stretch')
+
+    st.subheader("📅 Meses com Outliers")
+
+    for alerta in alertas:
+        texto_meses = ", ".join(
+            [f"{m} ({v:.2f})" for m, v in zip(alerta['meses'], alerta['valores'])]
+        )
+
+        if alerta["nivel"] == "critico":
+            st.error(
+                f"🔥 {alerta['unidade']} | {alerta['tipo']} → "
+                f"{alerta['quantidade']} outliers\n\n"
+                f"Meses: {texto_meses}"
+            )
         else:
-            causa = "Possível uso excessivo ou falha elétrica"
-
-        st.warning(f"{row['Unidade']} ({row['Tipo']}): {causa}")
+            st.warning(
+                f"⚠️ {alerta['unidade']} | {alerta['tipo']} → "
+                f"{alerta['quantidade']} outliers\n\n"
+                f"Meses: {texto_meses}"
+            )
