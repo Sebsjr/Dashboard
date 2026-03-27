@@ -19,12 +19,12 @@ st.markdown("""
 
 st.title("📊 Dashboard Inteligente - Energia e Água")
 
-# 🔗 LINK DIRETO DO GITHUB (RAW)
+# 🔗 LINK DO GITHUB (RAW)
 URL_EXCEL = "https://raw.githubusercontent.com/Sebsjr/Dashboard/main/dados.xls"
 
 LIMITE_OUTLIERS = 3
 
-# ---------------- LEITURA COM CACHE ----------------
+# ---------------- LEITURA ----------------
 @st.cache_data
 def carregar_dados():
     try:
@@ -32,7 +32,7 @@ def carregar_dados():
             URL_EXCEL,
             sheet_name='Planilha2',
             header=[0,1],
-            engine='xlrd'  # necessário para .xls
+            engine='xlrd'
         )
         return df
     except Exception as e:
@@ -62,6 +62,23 @@ for unidade in df.columns.levels[0]:
         continue
 
 df_long = pd.DataFrame(dados, columns=['Unidade','Tipo','Valor','Mes'])
+
+# ---------------- MAPA DE MESES ----------------
+mapa_meses = {
+    1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr",
+    5: "Mai", 6: "Jun", 7: "Jul", 8: "Ago",
+    9: "Set", 10: "Out", 11: "Nov", 12: "Dez"
+}
+
+df_long["Mes_Nome"] = df_long["Mes"].map(mapa_meses)
+
+ordem_meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+
+df_long["Mes_Nome"] = pd.Categorical(
+    df_long["Mes_Nome"],
+    categories=ordem_meses,
+    ordered=True
+)
 
 # ---------------- SIDEBAR ----------------
 st.sidebar.header("Filtros")
@@ -189,7 +206,7 @@ with tab3:
     st.plotly_chart(fig, width='stretch')
 
     for nivel, u, t, q, meses_out in alertas:
-        meses_str = ", ".join([f"M{m}" for m in meses_out])
+        meses_str = ", ".join([mapa_meses.get(m, str(m)) for m in meses_out])
 
         if nivel == "critico":
             st.error(f"🔥 {u} | {t}: {q} outliers → Meses: {meses_str}")
@@ -248,9 +265,11 @@ with tab5:
             'Tipo': ['Real']*len(y) + ['Previsto']*len(previsao)
         })
 
+        df_prev["Mes_Nome"] = df_prev["Mes"].map(mapa_meses)
+
         fig = px.line(
             df_prev,
-            x='Mes',
+            x='Mes_Nome',
             y='Valor',
             color='Tipo',
             markers=True,
