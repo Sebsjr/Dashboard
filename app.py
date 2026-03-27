@@ -19,7 +19,7 @@ st.markdown("""
 
 st.title("📊 Dashboard Inteligente - Energia e Água")
 
-# 🔗 LINK DO GITHUB (RAW)
+# 🔗 GITHUB RAW
 URL_EXCEL = "https://raw.githubusercontent.com/Sebsjr/Dashboard/main/dados.xls"
 
 LIMITE_OUTLIERS = 3
@@ -28,13 +28,12 @@ LIMITE_OUTLIERS = 3
 @st.cache_data
 def carregar_dados():
     try:
-        df = pd.read_excel(
+        return pd.read_excel(
             URL_EXCEL,
             sheet_name='Planilha2',
             header=[0,1],
             engine='xlrd'
         )
-        return df
     except Exception as e:
         st.error(f"Erro ao carregar Excel: {e}")
         return None
@@ -44,7 +43,7 @@ df = carregar_dados()
 if df is None:
     st.stop()
 
-# ---------------- TRANSFORMAR DADOS ----------------
+# ---------------- TRANSFORMAÇÃO ----------------
 dados = []
 
 for unidade in df.columns.levels[0]:
@@ -63,16 +62,16 @@ for unidade in df.columns.levels[0]:
 
 df_long = pd.DataFrame(dados, columns=['Unidade','Tipo','Valor','Mes'])
 
-# ---------------- MAPA DE MESES ----------------
+# ---------------- MESES ----------------
 mapa_meses = {
-    1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr",
-    5: "Mai", 6: "Jun", 7: "Jul", 8: "Ago",
-    9: "Set", 10: "Out", 11: "Nov", 12: "Dez"
+    1:"Jan",2:"Fev",3:"Mar",4:"Abr",
+    5:"Mai",6:"Jun",7:"Jul",8:"Ago",
+    9:"Set",10:"Out",11:"Nov",12:"Dez"
 }
 
-df_long["Mes_Nome"] = df_long["Mes"].map(mapa_meses)
+ordem_meses = list(mapa_meses.values())
 
-ordem_meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+df_long["Mes_Nome"] = df_long["Mes"].map(mapa_meses)
 
 df_long["Mes_Nome"] = pd.Categorical(
     df_long["Mes_Nome"],
@@ -109,7 +108,7 @@ df_filtrado = df_long[
     (df_long['Mes'] <= meses[1])
 ]
 
-# ---------------- FUNÇÃO OUTLIER ----------------
+# ---------------- OUTLIER ----------------
 def calcular_outliers(dados):
     q1 = np.percentile(dados, 25)
     q3 = np.percentile(dados, 75)
@@ -167,64 +166,69 @@ with tab3:
             if len(dados_u) == 0:
                 continue
 
-            valores = dados_u['Valor']
+            valores = dados_u['Valor'].values
             meses_u = dados_u['Mes'].values
 
             outliers = calcular_outliers(valores)
 
-            meses_outliers = [
-                meses_u[i] for i, v in enumerate(valores) if v in outliers
-            ]
+            valores_outliers = []
+            meses_outliers = []
 
-            qtd = len(outliers)
+            for i, v in enumerate(valores):
+                if v in outliers:
+                    valores_outliers.append(v)
+                    meses_outliers.append(meses_u[i])
 
-            outlier_data.append([unidade, tipo, qtd])
+            qtd = len(valores_outliers)
+            soma_outliers = sum(valores_outliers)
+
+            outlier_data.append([unidade, tipo, soma_outliers])
 
             if qtd > 0:
                 if qtd >= LIMITE_OUTLIERS:
-                    alertas.append(("critico", unidade, tipo, qtd, meses_outliers))
+                    alertas.append(("critico", unidade, tipo, qtd, meses_outliers, valores_outliers))
                 else:
-                    alertas.append(("normal", unidade, tipo, qtd, meses_outliers))
+                    alertas.append(("normal", unidade, tipo, qtd, meses_outliers, valores_outliers))
 
-    df_out = pd.DataFrame(outlier_data, columns=['Unidade','Tipo','Outliers'])
+    df_out = pd.DataFrame(outlier_data, columns=['Unidade','Tipo','Valor_Outliers'])
 
-    df_out['Nivel'] = df_out['Outliers'].apply(
-        lambda x: 'Crítico' if x >= LIMITE_OUTLIERS else 'Normal'
+    df_out['Nivel'] = df_out['Valor_Outliers'].apply(
+        lambda x: 'Crítico' if x > 0 else 'Normal'
     )
 
     fig = px.bar(
         df_out,
         y='Unidade',
-        x='Outliers',
+        x='Valor_Outliers',
         color='Nivel',
         orientation='h',
         barmode='group',
-        color_discrete_map={'Crítico':'red','Normal':'orange'}
+        color_discrete_map={'Crítico':'red','Normal':'gray'},
+        title="💰 Impacto dos Outliers"
     )
 
     fig.update_layout(height=1000)
     st.plotly_chart(fig, width='stretch')
 
-    for nivel, u, t, q, meses_out in alertas:
+    for nivel, u, t, q, meses_out, valores_out in alertas:
+
         meses_str = ", ".join([mapa_meses.get(m, str(m)) for m in meses_out])
+        valores_str = ", ".join([f"{v:,.0f}" for v in valores_out])
 
         if nivel == "critico":
-            st.error(f"🔥 {u} | {t}: {q} outliers → Meses: {meses_str}")
+            st.error(f"🔥 {u} | {t} → {q} outliers\nMeses: {meses_str}\nValores: {valores_str}")
         else:
-            st.warning(f"⚠️ {u} | {t}: {q} outliers → Meses: {meses_str}")
+            st.warning(f"⚠️ {u} | {t} → {q} outliers\nMeses: {meses_str}\nValores: {valores_str}")
 
 # ================= DIAGNÓSTICO =================
 with tab4:
     st.subheader("🤖 Diagnóstico Inteligente")
 
-    for nivel, u, t, q, _ in alertas:
+    for nivel, u, t, q, _, _ in alertas:
         if q == 0:
             continue
 
-        if t == "Água":
-            causa = "Possível vazamento ou erro de medição"
-        else:
-            causa = "Possível problema elétrico ou equipamento"
+        causa = "Possível vazamento ou erro de medição" if t == "Água" else "Possível problema elétrico"
 
         if nivel == "critico":
             st.error(f"{u} | {t} → {causa}")
@@ -233,7 +237,7 @@ with tab4:
 
 # ================= PREVISÃO =================
 with tab5:
-    st.subheader("📈 Previsão de Consumo (Machine Learning)")
+    st.subheader("📈 Previsão de Consumo")
 
     unidade_sel = st.selectbox("Unidade", df_filtrado['Unidade'].unique())
     tipo_sel = st.selectbox("Tipo", ['Energia','Água'])
@@ -249,8 +253,7 @@ with tab5:
         X = dados_ml['Mes'].values.reshape(-1,1)
         y = dados_ml['Valor'].values
 
-        modelo = LinearRegression()
-        modelo.fit(X, y)
+        modelo = LinearRegression().fit(X, y)
 
         futuros = np.arange(
             dados_ml['Mes'].max()+1,
@@ -267,15 +270,7 @@ with tab5:
 
         df_prev["Mes_Nome"] = df_prev["Mes"].map(mapa_meses)
 
-        fig = px.line(
-            df_prev,
-            x='Mes_Nome',
-            y='Valor',
-            color='Tipo',
-            markers=True,
-            title=f"{unidade_sel} - {tipo_sel}"
-        )
-
+        fig = px.line(df_prev, x='Mes_Nome', y='Valor', color='Tipo', markers=True)
         st.plotly_chart(fig, width='stretch')
 
         st.info(f"Tendência: {'Alta 📈' if modelo.coef_[0] > 0 else 'Queda 📉'}")
